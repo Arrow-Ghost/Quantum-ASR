@@ -1,0 +1,36 @@
+# torch + torchaudio are installed by setup.ps1 / setup.sh from the CUDA 12.4 wheel index:
+#   pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+
+# --- models / data
+transformers==4.46.3
+huggingface_hub>=0.34,<1.0
+datasets>=2.21,<4.0
+sentencepiece>=0.2
+sacremoses>=0.1.1
+
+# --- audio
+soundfile>=0.12.1
+av>=12.0
+sounddevice>=0.4.6
+silero-vad>=5.1
+
+# --- ASR runtime (IndicConformer is ONNX). Do NOT also install plain `onnxruntime`.
+onnxruntime-gpu==1.20.1
+onnx
+
+# --- science / utils
+numpy>=1.26
+scipy>=1.11
+scikit-learn>=1.4
+matplotlib>=3.8
+pyyaml>=6.0
+tqdm>=4.66
+jiwer>=3.0
+
+# --- optional text-to-speech (Windows SAPI voices)
+pyttsx3>=2.90 ; sys_platform == "win32"
+
+# Optional extras installed by the setup scripts if possible (failure is OK):
+#   cupy-cuda12x        -> custom CUDA quantum kernel (fastest backend)
+#   IndicTransToolkit   -> official IndicTrans2 pre/post-processing
+#   faster-whisper      -> alternative English ASR backend

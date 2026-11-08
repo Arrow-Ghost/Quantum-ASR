@@ -1,0 +1,171 @@
+# =====================================================================
+#  Quantum ASR - live Hindi <-> English speech translation
+#  with a hybrid quantum-classical spoken-language identifier (LID).
+#
+#  Every value can be overridden from the command line, e.g.
+#     python -m qasr train --set train.epochs=10 --set quantum.n_qubits=8
+# =====================================================================
+
+project:
+  seed: 1234
+  device: auto            # auto | cuda | cpu
+
+paths:
+  data_dir: data          # override with env QASR_DATA_DIR (e.g. D:/qasr_data)
+  checkpoints_dir: checkpoints
+  results_dir: results
+
+# ---------------------------------------------------------------------
+# 1. DATA  (streamed from Hugging Face, only the subset we need is read)
+#    label 0 = Hindi (hi), label 1 = English (en)
+# ---------------------------------------------------------------------
+data:
+  sample_rate: 16000
+  min_duration_s: 0.8
+  max_store_s: 12.0       # longer clips are center-cropped before saving
+  max_per_speaker: 80     # caps clips per speaker -> more speaker diversity
+  shuffle_buffer: 1000
+  split_ratio: [0.90, 0.05, 0.05]   # train / val / test, split BY SPEAKER
+  sources:
+    - name: kathbath_hi
+      repo: ai4bharat/Kathbath
+      config: hindi
+      split: train
+      lang: hi
+      max_items: 10000
+      audio_col: audio_filepath
+      text_col: text
+      speaker_cols: [speaker_id]
+    - name: indicvoices_hi
+      repo: ai4bharat/IndicVoices
+      config: hindi
+      split: train
+      lang: hi
+      max_items: 12000
+      audio_col: audio_filepath
+      text_col: normalized
+      speaker_cols: [speaker_id]
+    - name: shrutilipi_hi
+      repo: ai4bharat/Shrutilipi
+      config: hindi
+      split: train
+      lang: hi
+      max_items: 5000
+      audio_col: audio_filepath
+      text_col: text
+      speaker_cols: []
+    - name: svarah_en              # AI4Bharat Indian-accented English
+      repo: ai4bharat/Svarah
+      config: default
+      split: test
+      lang: en
+      max_items: 6656
+      audio_col: audio_filepath
+      text_col: text
+      # Svarah has no speaker id -> demographic tuple used as speaker proxy
+      speaker_cols: [native_place_district, gender, age-group, primary_language]
+    - name: librispeech_en         # volume / balance for English
+      repo: openslr/librispeech_asr
+      config: clean
+      split: train.100
+      lang: en
+      max_items: 20000
+      audio_col: audio
+      text_col: text
+      speaker_cols: [speaker_id]
+    # ---- out-of-domain test sets (never used for training) ----
+    - name: lahaja_hi_ood          # AI4Bharat, Hindi spoken by many L1 backgrounds
+      repo: ai4bharat/Lahaja
+      config: default
+      split: test
+      lang: hi
+      max_items: 2000
+      audio_col: audio_filepath
+      text_col: text
+      speaker_cols: [sp_id]
+      force_split: test_ood
+    - name: librispeech_en_ood
+      repo: openslr/librispeech_asr
+      config: clean
+      split: test
+      lang: en
+      max_items: 2000
+      audio_col: audio
+      text_col: text
+      speaker_cols: [speaker_id]
+      force_split: test_ood
+
+# ---------------------------------------------------------------------
+# 2. FEATURES  (frozen encoder, computed ONCE and cached)
+# ---------------------------------------------------------------------
+features:
+  encoder: whisper_base          # whisper_base | mel_stats
+  whisper_model: openai/whisper-base
+  pooling: mean_std              # mean | mean_std
+  views_train: 3                 # augmented random crops per training clip
+  crop_min_s: 1.0
+  crop_max_s: 6.0
+  eval_crop_s: 6.0
+  aug_gain_db: 6.0
+  aug_noise_prob: 0.5
+  aug_snr_db: [10, 40]
+  batch_size: 64
+  num_workers: 4
+
+# ---------------------------------------------------------------------
+# 3. QUANTUM CIRCUIT  (data re-uploading variational circuit)
+# ---------------------------------------------------------------------
+quantum:
+  n_qubits: 10
+  n_layers: 4
+  entangler: ring                # ring | line
+  backend: auto                  # auto | cuda_kernel | cpu_kernel | torch
+  cuda_block_threads: 256
+
+# ---------------------------------------------------------------------
+# 4. TRAINING
+# ---------------------------------------------------------------------
+train:
+  models: [hybrid, classical]    # classical = parameter-matched baseline
+  epochs: 40
+  batch_size: 256
+  lr: 0.003
+  lr_quantum: 0.01               # circuit params like a larger LR
+  weight_decay: 0.0001
+  label_smoothing: 0.05
+  dropout: 0.1
+  patience: 8                    # early stopping on val macro-F1
+  grad_clip: 1.0
+  source_weight:                 # oversample in-domain Indian-English
+    svarah_en: 2.0
+
+# ---------------------------------------------------------------------
+# 5. LIVE PIPELINE
+# ---------------------------------------------------------------------
+live:
+  input_device: null             # null = system default microphone
+  chunk_samples: 512             # 32 ms @16 kHz (Silero VAD frame)
+  vad_start_threshold: 0.5
+  vad_end_threshold: 0.35
+  min_silence_ms: 350            # end-of-utterance detection -> latency knob
+  pre_roll_ms: 300
+  min_speech_ms: 300
+  max_segment_s: 8.0
+  lid_mode: quantum              # quantum (trained head) | whisper (fallback)
+  lid_checkpoint: checkpoints/hybrid_best.pt
+  lid_min_confidence: 0.65       # below this, reuse previous language
+  hindi_asr: indicconformer      # indicconformer | indicwav2vec
+  hindi_asr_decoding: ctc        # ctc (faster) | rnnt (slightly better)
+  english_asr: distil-whisper/distil-large-v3
+  english_asr_backend: transformers   # transformers | faster_whisper
+  mt_hi_en: ai4bharat/indictrans2-indic-en-dist-200M
+  mt_en_hi: ai4bharat/indictrans2-en-indic-dist-200M
+  mt_num_beams: 1                # 1 = greedy = fastest
+  mt_max_length: 256
+  speak: false                   # text-to-speech of the translation (pyttsx3)
+  log_sessions: true
+
+models:
+  indicconformer: ai4bharat/indic-conformer-600m-multilingual
+  indicwav2vec: ai4bharat/indicwav2vec-hindi
+  faster_whisper_en: distil-large-v3

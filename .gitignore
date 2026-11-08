@@ -1,0 +1,8 @@
+.venv/
+.cache/
+__pycache__/
+*.pyc
+data/
+checkpoints/
+results/live_sessions/
+qasr/quantum/kernels/build/
