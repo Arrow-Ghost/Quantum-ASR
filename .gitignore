@@ -1,8 +1,10 @@
-.venv/
-.cache/
+# Leading "/" = only these folders at the project root.
+# (A bare "data/" would also hide the code package qasr/data/.)
+/.venv/
+/.cache/
 __pycache__/
 *.pyc
-data/
-checkpoints/
-results/live_sessions/
-qasr/quantum/kernels/build/
+/data/
+/checkpoints/
+/results/
+/qasr/quantum/kernels/build/
